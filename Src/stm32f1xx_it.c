@@ -82,7 +82,7 @@ extern UART_HandleTypeDef huart1;
 /* USER CODE END EV */
 
 /******************************************************************************/
-/*           Cortex-M3 Processor Interruption and Exception Handlers          */
+/*           Cortex-M3 Processor Interruption and Exception Handlers          */ 
 /******************************************************************************/
 /**
   * @brief This function handles System service call via SWI instruction.
@@ -159,9 +159,15 @@ void EXTI9_5_IRQHandler(void)
   /* USER CODE BEGIN EXTI9_5_IRQn 0 */
 	if (EXTI->PR & GPIO_PIN_8){
 		if (lastPhase == PHASE3){
-			if (track > 0) track--;
+			if (track > 0){
+				track--;
+				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+			}
 		} else if (lastPhase == PHASE1) {
-			if (track < 34) track++;
+			if (track < 34){
+				track++;
+				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+			}
 		}
 		lastPhase = PHASE2;
 	} else if (EXTI->PR & GPIO_PIN_9){
@@ -211,9 +217,15 @@ void EXTI15_10_IRQHandler(void)
   /* USER CODE BEGIN EXTI15_10_IRQn 0 */
 	if (EXTI->PR & GPIO_PIN_10){
 		if (lastPhase == PHASE1){
-			if (track > 0) track--;
+			if (track > 0){
+				track--;
+				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+			}
 		} else if (lastPhase == PHASE3) {
-			if (track < 34) track++;
+			if (track < 34){
+				track++;
+				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+			}
 		}
 		lastPhase = PHASE0;
 	} else if (EXTI->PR & GPIO_PIN_11){

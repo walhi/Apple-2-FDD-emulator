@@ -50,6 +50,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -62,6 +64,8 @@ void Error_Handler(void);
 #define SD_DETECT_GPIO_Port GPIOA
 #define SD_WREN_Pin GPIO_PIN_3
 #define SD_WREN_GPIO_Port GPIOA
+#define LED2_Pin GPIO_PIN_4
+#define LED2_GPIO_Port GPIOA
 #define DRIVE_ENABLE_Pin GPIO_PIN_2
 #define DRIVE_ENABLE_GPIO_Port GPIOB
 #define PHASE0_Pin GPIO_PIN_10
@@ -78,8 +82,6 @@ void Error_Handler(void);
 #define PHASE3_Pin GPIO_PIN_9
 #define PHASE3_GPIO_Port GPIOA
 #define PHASE3_EXTI_IRQn EXTI9_5_IRQn
-#define LED2_Pin GPIO_PIN_11
-#define LED2_GPIO_Port GPIOA
 #define LED1_Pin GPIO_PIN_12
 #define LED1_GPIO_Port GPIOA
 /* USER CODE BEGIN Private defines */
