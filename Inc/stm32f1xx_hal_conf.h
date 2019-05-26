@@ -5,7 +5,7 @@
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; COPYRIGHT(c) 2018 STMicroelectronics</center></h2>
+  * <h2><center>&copy; COPYRIGHT(c) 2019 STMicroelectronics</center></h2>
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -40,7 +40,6 @@
  extern "C" {
 #endif
 
-#include "main.h"
 /* Exported types ------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
 
@@ -57,7 +56,7 @@
 /*#define HAL_CORTEX_MODULE_ENABLED   */
 /*#define HAL_CRC_MODULE_ENABLED   */
 /*#define HAL_DAC_MODULE_ENABLED   */
-/*#define HAL_DMA_MODULE_ENABLED   */
+#define HAL_DMA_MODULE_ENABLED
 /*#define HAL_ETH_MODULE_ENABLED   */
 /*#define HAL_FLASH_MODULE_ENABLED   */
 #define HAL_GPIO_MODULE_ENABLED
@@ -80,9 +79,10 @@
 #define HAL_SPI_MODULE_ENABLED
 /*#define HAL_SRAM_MODULE_ENABLED   */
 /*#define HAL_TIM_MODULE_ENABLED   */
-/*#define HAL_UART_MODULE_ENABLED   */
+#define HAL_UART_MODULE_ENABLED
 /*#define HAL_USART_MODULE_ENABLED   */
 /*#define HAL_WWDG_MODULE_ENABLED   */
+/*#define HAL_EXTI_MODULE_ENABLED   */
 
 #define HAL_CORTEX_MODULE_ENABLED
 #define HAL_DMA_MODULE_ENABLED
@@ -98,7 +98,7 @@
   *        (when HSE is used as system clock source, directly or through the PLL).  
   */
 #if !defined  (HSE_VALUE) 
-  #define HSE_VALUE    ((uint32_t)8000000) /*!< Value of the External oscillator in Hz */
+  #define HSE_VALUE    ((uint32_t)12000000) /*!< Value of the External oscillator in Hz */
 #endif /* HSE_VALUE */
 
 #if !defined  (HSE_STARTUP_TIMEOUT)
@@ -218,6 +218,10 @@
 #ifdef HAL_RCC_MODULE_ENABLED
  #include "stm32f1xx_hal_rcc.h"
 #endif /* HAL_RCC_MODULE_ENABLED */
+
+#ifdef HAL_EXTI_MODULE_ENABLED
+ #include "stm32f1xx_hal_exti.h"
+#endif /* HAL_EXTI_MODULE_ENABLED */
 
 #ifdef HAL_GPIO_MODULE_ENABLED
  #include "stm32f1xx_hal_gpio.h"
