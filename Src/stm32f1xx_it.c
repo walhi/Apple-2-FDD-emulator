@@ -27,12 +27,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN TD */
-enum phase {
-	PHASE0,
-	PHASE1,
-	PHASE2,
-	PHASE3,
-} lastPhase;
 /* USER CODE END TD */
 
 /* Private define ------------------------------------------------------------*/
@@ -47,9 +41,6 @@ enum phase {
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-extern uint8_t track;
-extern uint8_t sector;
-extern uint8_t* currentSectorBuf, nextSectorBuf;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -76,8 +67,14 @@ void SDTimer_Handler(void)
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_spi1_tx;
 extern SPI_HandleTypeDef hspi1;
-extern UART_HandleTypeDef huart1;
 /* USER CODE BEGIN EV */
+
+extern TIM_HandleTypeDef htim3;
+extern uint8_t track;
+extern uint8_t sector;
+extern uint8_t* currentSectorBuf;
+extern uint8_t* buf;
+
 
 /* USER CODE END EV */
 
@@ -138,6 +135,20 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles EXTI line0 interrupt.
+  */
+void EXTI0_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI0_IRQn 0 */
+
+  /* USER CODE END EXTI0_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+  /* USER CODE BEGIN EXTI0_IRQn 1 */
+
+  /* USER CODE END EXTI0_IRQn 1 */
+}
+
+/**
   * @brief This function handles DMA1 channel3 global interrupt.
   */
 void DMA1_Channel3_IRQHandler(void)
@@ -157,23 +168,8 @@ void DMA1_Channel3_IRQHandler(void)
 void EXTI9_5_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI9_5_IRQn 0 */
-	if (EXTI->PR & GPIO_PIN_8){
-		if (lastPhase == PHASE3){
-			if (track > 0){
-				track--;
-				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-			}
-		} else if (lastPhase == PHASE1) {
-			if (track < 34){
-				track++;
-				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-			}
-		}
-		lastPhase = PHASE2;
-	} else if (EXTI->PR & GPIO_PIN_9){
-		lastPhase = PHASE3;
-	}
   /* USER CODE END EXTI9_5_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_8);
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_9);
   /* USER CODE BEGIN EXTI9_5_IRQn 1 */
@@ -196,41 +192,11 @@ void SPI1_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles USART1 global interrupt.
-  */
-void USART1_IRQHandler(void)
-{
-  /* USER CODE BEGIN USART1_IRQn 0 */
-
-  /* USER CODE END USART1_IRQn 0 */
-  HAL_UART_IRQHandler(&huart1);
-  /* USER CODE BEGIN USART1_IRQn 1 */
-
-  /* USER CODE END USART1_IRQn 1 */
-}
-
-/**
   * @brief This function handles EXTI line[15:10] interrupts.
   */
 void EXTI15_10_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI15_10_IRQn 0 */
-	if (EXTI->PR & GPIO_PIN_10){
-		if (lastPhase == PHASE1){
-			if (track > 0){
-				track--;
-				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-			}
-		} else if (lastPhase == PHASE3) {
-			if (track < 34){
-				track++;
-				HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-			}
-		}
-		lastPhase = PHASE0;
-	} else if (EXTI->PR & GPIO_PIN_11){
-		lastPhase = PHASE1;
-	}
 
   /* USER CODE END EXTI15_10_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_10);

@@ -25,6 +25,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "dsk2nic.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,8 +37,11 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define _Error_Handler(x,y)
-#define SECTOR_SIZE 512
+#define NIC_SECTOR_SIZE 512
+#define DSK_SECTOR_SIZE 256
 #define SECTORS_COUNT 16
+#define TRUE  1
+#define FALSE 0
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,20 +54,28 @@ SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
 DMA_HandleTypeDef hdma_spi1_tx;
 
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
 
-UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 FATFS fs;
 FATFS *pfs;
 FIL fil;
-uint8_t buf[2][SECTOR_SIZE];
-uint8_t* currentSectorBuf;
-uint8_t* nextSectorBuf;
+FIL fil2;
+uint8_t nic_buf[NIC_SECTOR_SIZE];
+uint8_t dsk_buf[DSK_SECTOR_SIZE+2];
 
-volatile uint8_t track = 34;
+uint16_t lastTimerValue;
+
+uint8_t writeChangeFlag = FALSE;
+uint8_t readChangeFlag = FALSE;
+
+volatile uint changes = 0;
+
+volatile uint8_t track = 0;
 volatile uint8_t sector = 0;
 /* USER CODE END PV */
 
@@ -70,31 +83,161 @@ volatile uint8_t sector = 0;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
-static void MX_USART1_UART_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
+
 void changeSector()
 {
 	sector = (sector >= 15)?0:sector+1;
-	uint8_t* tmp = currentSectorBuf;
-	currentSectorBuf = nextSectorBuf;
-	nextSectorBuf = tmp;
+	//uint8_t* tmp = currentSectorBuf;
+	//currentSectorBuf = nextSectorBuf;
+	//nextSectorBuf = tmp;
 }
+
+
+void writeMode(void){
+	//memset(currentSectorBuf, 0x00, SECTOR_SIZE);
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+	HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+	writeChangeFlag = FALSE;
+}
+
+void readMode(void){
+	//prepare buffers
+	HAL_NVIC_DisableIRQ(EXTI0_IRQn);
+
+	//start transmit
+	//HAL_SPI_Transmit_DMA(&hspi1, buf, sizeof(buf));
+	//HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+	readChangeFlag = FALSE;
+}
+
 void HAL_SPI_TxHalfCpltCallback(SPI_HandleTypeDef *hspi)
 {
-	changeSector();
+	//changeSector();
+	// get next sector from sd card
   /* Prevent unused argument(s) compilation warning */
   UNUSED(hspi);
 }
 
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-  changeSector();
+	changeSector();
+	// convert dsk to nic
   /* Prevent unused argument(s) compilation warning */
   UNUSED(hspi);
+}
+
+HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	static uint8_t *data;
+	static uint8_t pos;
+	switch (GPIO_Pin){
+	case WRITE_REQUEST_Pin:
+		if (HAL_GPIO_ReadPin(WRITE_REQUEST_GPIO_Port, WRITE_REQUEST_Pin) == GPIO_PIN_RESET){
+			// Stop read pulse
+			HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
+			HAL_SPI_Abort(&hspi1);
+			changes = 0;
+
+			HAL_TIM_Base_Init(&htim1);
+			HAL_TIM_Base_Start(&htim1);
+
+			//HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+			//data = currentSectorBuf;
+			pos = 0;
+			writeChangeFlag = TRUE;
+		} else {
+			//HAL_NVIC_DisableIRQ(EXTI2_IRQn);
+			readChangeFlag = TRUE;
+		}
+		break;
+	case PHASE0_Pin:
+		if (lastPhase == PHASE1){
+			if (track > 0){
+				track--;
+			}
+		} else if (lastPhase == PHASE3) {
+			if (track < 34){
+				track++;
+			}
+		}
+		lastPhase = PHASE0;
+		break;
+	case PHASE1_Pin:
+		lastPhase = PHASE1;
+		break;
+	case PHASE2_Pin:
+		if (lastPhase == PHASE3){
+			if (track > 0){
+				track--;
+			}
+		} else if (lastPhase == PHASE1) {
+			if (track < 34){
+				track++;
+			}
+		}
+		lastPhase = PHASE2;
+		break;
+	case PHASE3_Pin:
+		lastPhase = PHASE3;
+		break;
+	case WRITE_SIGNAL_Pin:
+		changes++;
+		uint16_t ticks = __HAL_TIM_GET_COUNTER(&htim1);
+		if (ticks >= 7 && ticks < 14){
+			// 1
+			*data |= (1 << pos);
+			pos++;
+			if (pos >= 8){
+				data++;
+				pos = 0;
+			}
+		} else if (ticks >= 14 && ticks < 21){
+			// 01
+			*data &= ~(1 << pos);
+			pos++;
+			if (pos >= 8){
+				data++;
+				pos = 0;
+			}
+			*data |= (1 << pos);
+			pos++;
+			if (pos >= 8){
+				data++;
+				pos = 0;
+			}
+		} else if (ticks >= 21 && ticks < 28){
+			// 001
+			*data &= ~(1 << pos);
+			pos++;
+			if (pos >= 8){
+				data++;
+				pos = 0;
+			}
+			*data &= ~(1 << pos);
+			pos++;
+			if (pos >= 8){
+				data++;
+				pos = 0;
+			}
+			*data |= (1 << pos);
+			pos++;
+			if (pos >= 8){
+				data++;
+				pos = 0;
+			}
+		} else {
+			// ?
+		}
+
+		break;
+	}
 }
 /* USER CODE END PFP */
 
@@ -110,10 +253,17 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	uint8_t buf2[5];
 	uint8_t oldTrack = !track;
 	uint8_t oldSector = !sector;
-	GPIO_PinState oldDRIVE_ENABLE;
+	GPIO_PinState oldDRIVE1_ENABLE;
+	volatile FRESULT res;
+	char uart_buf[20];
+
+	uint16_t readed;
+	memset(uart_buf, 0, sizeof(uart_buf));
+
+	//HAL_HalfDuplex_EnableTransmitter(&huart1);
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -136,55 +286,53 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_FATFS_Init();
-  MX_USART1_UART_Init();
   MX_SPI2_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
+  MX_TIM1_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-	oldDRIVE_ENABLE = GPIO_PIN_SET;//HAL_GPIO_ReadPin(DRIVE_ENABLE_GPIO_Port, DRIVE_ENABLE_Pin);
+	oldDRIVE1_ENABLE = GPIO_PIN_SET;//HAL_GPIO_ReadPin(DRIVE_ENABLE_GPIO_Port, DRIVE_ENABLE_Pin);
 
   /* Enable the Half transfer complete interrupt */
   //__HAL_DMA_ENABLE_IT(&hdma_spi1_tx, DMA_IT_HT);
 	//HAL_DMA_RegisterCallback(&hdma_spi1_tx, HAL_DMA_XFER_CPLT_CB_ID, changeSector);
 	//HAL_DMA_RegisterCallback(&hdma_spi1_tx, HAL_DMA_XFER_HALFCPLT_CB_ID, &changeSector);
 
-	HAL_SPI_Transmit_DMA(&hspi1, buf[0], sizeof(buf));
 
-	HAL_SPI_DMAPause(&hspi1);
+	HAL_UART_Transmit(&huart2, uart_buf, sizeof(uart_buf), 0xFFFF);
 
   /* Mount SD Card */
   if(f_mount(&fs, "", 0) != FR_OK){
-		buf2[0] = 's';
-		buf2[1] = 'd';
-		buf2[2] = 'e';
-		buf2[3] = '\n';
-		buf2[4] = '\r';
-		HAL_UART_Transmit(&huart1, (uint8_t *)buf2, 5, 0xFFFF);
+		// SHOW MESSAGE ON APPLE 2
     _Error_Handler(__FILE__, __LINE__);
 	}
 
+
 	  /* Open file to read */
-  if(f_open(&fil, "DOS33.NIC", FA_READ) != FR_OK){
-		buf2[0] = 'f';
-		buf2[1] = 'e';
-		buf2[2] = 'r';
-		buf2[3] = '\n';
-		buf2[4] = '\r';
-		HAL_UART_Transmit(&huart1, (uint8_t *)buf2, 5, 0xFFFF);
+  if(res = f_open(&fil, "BOOT.DSK", FA_READ) != FR_OK){
+		// SHOW MESSAGE ON APPLE 2
+
     _Error_Handler(__FILE__, __LINE__);
 	}
+
 
   HAL_TIM_Base_Start(&htim3);
 	//HAL_TIM_IC_Start(&htim1, TIM_CHANNEL_4);
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
 	//HAL_TIM_OnePulse_Start(&htim1, TIM_CHANNEL_3);
-	currentSectorBuf = buf[0];
-	nextSectorBuf = buf[1];
+	//currentSectorBuf = buf[0];
+	//nextSectorBuf = buf[1];
 
-	memset(buf, 0x00, 2*SECTOR_SIZE);
-	//f_gets(buf[0], SECTOR_SIZE, &fil);
-	//f_gets(buf[1], SECTOR_SIZE, &fil);
+	//f_lseek(&fil, 0);
+
+
+	//res = f_read(&fil, dsk_buf, DSK_SECTOR_SIZE, &readed);
+	//dsk2nic(dsk_buf, nic_buf, track, sector);
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -194,44 +342,46 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		if (HAL_GPIO_ReadPin(DRIVE_ENABLE_GPIO_Port, DRIVE_ENABLE_Pin) != oldDRIVE_ENABLE){
-			if (oldDRIVE_ENABLE){
+		if (HAL_GPIO_ReadPin(DRIVE1_ENABLE_GPIO_Port, DRIVE1_ENABLE_Pin) != oldDRIVE1_ENABLE){
+			if (oldDRIVE1_ENABLE){
 				// run spi
-				HAL_SPI_DMAResume(&hspi1);
+				HAL_SPI_Transmit_DMA(&hspi1, nic_buf, sizeof(nic_buf));
 			} else {
 				// stop spi
-				HAL_SPI_DMAPause(&hspi1);
+				HAL_SPI_DMAStop(&hspi1);
 			}
-			oldDRIVE_ENABLE = !oldDRIVE_ENABLE;
-		}
-
-		if (oldSector != sector){
-			oldSector = sector;
-			f_lseek(&fil, ((SECTOR_SIZE * SECTORS_COUNT * track) + (SECTOR_SIZE * sector)));
-			f_gets(nextSectorBuf, SECTOR_SIZE, &fil);
-			//nextSectorBuf[1] = sector;
-			buf2[0] = 's';
-			buf2[1] = (sector / 10) + '0';
-			buf2[2] = (sector % 10) + '0';
-			buf2[3] = '\r';
-			buf2[4] = '\r';
-			HAL_UART_Transmit(&huart1, (uint8_t *)buf2, 5, 0xFFFF);
+			oldDRIVE1_ENABLE = !oldDRIVE1_ENABLE;
 		}
 
 		if (oldTrack != track){
 			//HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-			memset(buf, 0x00, 2*SECTOR_SIZE);
+			sprintf(uart_buf, "\n\rtr: %d\n\r", track);
+			HAL_UART_Transmit(&huart2, uart_buf, sizeof(uart_buf), 0xFFFF);
+			memset(nic_buf, 0x00, NIC_SECTOR_SIZE);
 			oldSector = !sector;
-			buf2[0] = (track / 100) + '0';
-			buf2[1] = ((track % 100) / 10) + '0';
-			buf2[2] = (track % 10) + '0';
-			buf2[3] = '\r';
-			buf2[4] = '\n';
-			HAL_UART_Transmit(&huart1, (uint8_t *)buf2, 5, 0xFFFF);
 			oldTrack = track;
 			//if (track > 34) continue;
 		}
 
+		if (oldSector != sector){
+			HAL_SPI_DMAStop(&hspi1);
+			sprintf(uart_buf, "sec: %d\r", sector);
+			HAL_UART_Transmit(&huart2, uart_buf, sizeof(uart_buf), 0xFFFF);
+			oldSector = sector;
+			f_lseek(&fil, ((DSK_SECTOR_SIZE * SECTORS_COUNT * track) + (DSK_SECTOR_SIZE * dsk_scramble[sector])));
+			//f_lseek(&fil, ((DSK_SECTOR_SIZE * SECTORS_COUNT * track) + (DSK_SECTOR_SIZE * sector)));
+
+			HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+			f_read(&fil, dsk_buf, DSK_SECTOR_SIZE, &readed);
+			HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+			HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+			dsk2nic(dsk_buf, nic_buf, track, sector);
+			HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+			HAL_SPI_Transmit_DMA(&hspi1, nic_buf, sizeof(nic_buf));
+		}
+
+		if (writeChangeFlag) writeMode();
+		if (readChangeFlag) readMode();
   }
 
   /* Close file */
@@ -358,6 +508,52 @@ static void MX_SPI2_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 3;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 0;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -398,7 +594,7 @@ static void MX_TIM3_Init(void)
   }
   sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
   sSlaveConfig.InputTrigger = TIM_TS_TI1FP1;
-  sSlaveConfig.TriggerPolarity = TIM_TRIGGERPOLARITY_RISING;
+  sSlaveConfig.TriggerPolarity = TIM_TRIGGERPOLARITY_FALLING;
   sSlaveConfig.TriggerFilter = 0;
   if (HAL_TIM_SlaveConfigSynchronization(&htim3, &sSlaveConfig) != HAL_OK)
   {
@@ -426,35 +622,35 @@ static void MX_TIM3_Init(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
+  * @brief USART2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART1_UART_Init(void)
+static void MX_USART2_UART_Init(void)
 {
 
-  /* USER CODE BEGIN USART1_Init 0 */
+  /* USER CODE BEGIN USART2_Init 0 */
 
-  /* USER CODE END USART1_Init 0 */
+  /* USER CODE END USART2_Init 0 */
 
-  /* USER CODE BEGIN USART1_Init 1 */
+  /* USER CODE BEGIN USART2_Init 1 */
 
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART1_Init 2 */
+  /* USER CODE BEGIN USART2_Init 2 */
 
-  /* USER CODE END USART1_Init 2 */
+  /* USER CODE END USART2_Init 2 */
 
 }
 
@@ -489,41 +685,41 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LED2_Pin|LED1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LED1_Pin|LED2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PC13 PC14 PC15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA1 PA10 PA11 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_10|GPIO_PIN_11;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : SD_DETECT_Pin SD_WREN_Pin */
-  GPIO_InitStruct.Pin = SD_DETECT_Pin|SD_WREN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : LED2_Pin LED1_Pin */
-  GPIO_InitStruct.Pin = LED2_Pin|LED1_Pin;
+  /*Configure GPIO pins : LED1_Pin LED2_Pin */
+  GPIO_InitStruct.Pin = LED1_Pin|LED2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB1 PB8 PB9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_8|GPIO_PIN_9;
+  /*Configure GPIO pins : PA1 PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : WRITE_SIGNAL_Pin WRITE_REQUEST_Pin */
+  GPIO_InitStruct.Pin = WRITE_SIGNAL_Pin|WRITE_REQUEST_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB1 PB2 PB6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : DRIVE_ENABLE_Pin PHASE0_Pin PHASE1_Pin */
-  GPIO_InitStruct.Pin = DRIVE_ENABLE_Pin|PHASE0_Pin|PHASE1_Pin;
+  /*Configure GPIO pins : PHASE0_Pin PHASE1_Pin */
+  GPIO_InitStruct.Pin = PHASE0_Pin|PHASE1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -541,7 +737,22 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : SD_DETECT_Pin SD_WREN_Pin */
+  GPIO_InitStruct.Pin = SD_DETECT_Pin|SD_WREN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : DRIVE1_ENABLE_Pin DRIVE2_ENABLE_Pin */
+  GPIO_InitStruct.Pin = DRIVE1_ENABLE_Pin|DRIVE2_ENABLE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
