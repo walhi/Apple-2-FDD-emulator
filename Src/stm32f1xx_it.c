@@ -66,15 +66,12 @@ void SDTimer_Handler(void)
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_spi1_tx;
-extern SPI_HandleTypeDef hspi1;
+extern TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN EV */
 
 extern TIM_HandleTypeDef htim3;
-extern uint8_t track;
-extern uint8_t sector;
-extern uint8_t* currentSectorBuf;
-extern uint8_t* buf;
-
+extern uint16_t *writeBufPtr;
+extern uint16_t *writeBufEndPtr;
 
 /* USER CODE END EV */
 
@@ -135,20 +132,6 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles EXTI line0 interrupt.
-  */
-void EXTI0_IRQHandler(void)
-{
-  /* USER CODE BEGIN EXTI0_IRQn 0 */
-
-  /* USER CODE END EXTI0_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
-  /* USER CODE BEGIN EXTI0_IRQn 1 */
-
-  /* USER CODE END EXTI0_IRQn 1 */
-}
-
-/**
   * @brief This function handles DMA1 channel3 global interrupt.
   */
 void DMA1_Channel3_IRQHandler(void)
@@ -169,7 +152,6 @@ void EXTI9_5_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI9_5_IRQn 0 */
   /* USER CODE END EXTI9_5_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_8);
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_9);
   /* USER CODE BEGIN EXTI9_5_IRQn 1 */
@@ -178,17 +160,29 @@ void EXTI9_5_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles SPI1 global interrupt.
+  * @brief This function handles TIM2 global interrupt.
   */
-void SPI1_IRQHandler(void)
+void TIM2_IRQHandler(void)
 {
-  /* USER CODE BEGIN SPI1_IRQn 0 */
+  /* USER CODE BEGIN TIM2_IRQn 0 */
 
-  /* USER CODE END SPI1_IRQn 0 */
-  HAL_SPI_IRQHandler(&hspi1);
-  /* USER CODE BEGIN SPI1_IRQn 1 */
+	*writeBufPtr = __HAL_TIM_GET_COUNTER(&htim2);
+	writeBufPtr++;
+	if (writeBufPtr > writeBufEndPtr){
+		//HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_2);
+		//HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
+		convert();
+		LED1_GPIO_Port->ODR ^= LED1_Pin;
+	}
 
-  /* USER CODE END SPI1_IRQn 1 */
+	__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_CC2);
+	__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_CC3);
+	return;
+  /* USER CODE END TIM2_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim2);
+  /* USER CODE BEGIN TIM2_IRQn 1 */
+
+  /* USER CODE END TIM2_IRQn 1 */
 }
 
 /**

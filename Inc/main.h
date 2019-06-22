@@ -66,13 +66,18 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define LED1_Pin GPIO_PIN_0
-#define LED1_GPIO_Port GPIOA
+#define LED1_Pin GPIO_PIN_13
+#define LED1_GPIO_Port GPIOC
+#define WRITE_REQUEST_Pin GPIO_PIN_0
+#define WRITE_REQUEST_GPIO_Port GPIOA
+#define WRITE_SIGNAL_Pin GPIO_PIN_1
+#define WRITE_SIGNAL_GPIO_Port GPIOA
+#define WRITE_SIGNAL_COPY_Pin GPIO_PIN_2
+#define WRITE_SIGNAL_COPY_GPIO_Port GPIOA
+#define LED3_Pin GPIO_PIN_3
+#define LED3_GPIO_Port GPIOA
 #define LED2_Pin GPIO_PIN_4
 #define LED2_GPIO_Port GPIOA
-#define WRITE_SIGNAL_Pin GPIO_PIN_0
-#define WRITE_SIGNAL_GPIO_Port GPIOB
-#define WRITE_SIGNAL_EXTI_IRQn EXTI0_IRQn
 #define PHASE0_Pin GPIO_PIN_10
 #define PHASE0_GPIO_Port GPIOB
 #define PHASE0_EXTI_IRQn EXTI15_10_IRQn
@@ -101,9 +106,6 @@ void Error_Handler(void);
 #define PULSE_TRIG_GPIO_Port GPIOB
 #define PULSE_Pin GPIO_PIN_5
 #define PULSE_GPIO_Port GPIOB
-#define WRITE_REQUEST_Pin GPIO_PIN_7
-#define WRITE_REQUEST_GPIO_Port GPIOB
-#define WRITE_REQUEST_EXTI_IRQn EXTI9_5_IRQn
 #define DRIVE1_ENABLE_Pin GPIO_PIN_8
 #define DRIVE1_ENABLE_GPIO_Port GPIOB
 #define DRIVE2_ENABLE_Pin GPIO_PIN_9
