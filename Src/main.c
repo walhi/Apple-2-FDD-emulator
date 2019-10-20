@@ -76,7 +76,9 @@ int16_t *writeBufEndPtr;
 volatile uint8_t track = 0;
 volatile uint8_t sector = 0;
 
+
 uint8_t bootloader = FALSE;
+//uint8_t bootloader = TRUE;
 UINT readed;
 /* USER CODE END PV */
 
@@ -191,7 +193,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 #define TICK 16
 
 void convert(void){
-	LED3_GPIO_Port->ODR ^= LED3_Pin;
+	//LED3_GPIO_Port->ODR ^= LED3_Pin;
 	uint16_t i = 0;
 	int16_t current;
 	current = writeBuf2[0] = writeBuf[0];
@@ -219,11 +221,11 @@ void convert(void){
 		}
 		current = writeBuf2[i] = writeBuf[i] - writeBuf[i - 1];
 	}
-	LED3_GPIO_Port->ODR ^= LED3_Pin;
+	//LED3_GPIO_Port->ODR ^= LED3_Pin;
 	for (i = 0; i < 512; i++) {
 		writeBuf4[i] = ((writeBuf4[i] * 0x0802LU & 0x22110LU) | (writeBuf4[i] * 0x8020LU & 0x88440LU)) * 0x10101LU >> 16;
 	}
-	LED3_GPIO_Port->ODR ^= LED3_Pin;
+	//LED3_GPIO_Port->ODR ^= LED3_Pin;
 	writeBufPtr = writeBuf;
 }
 
@@ -286,6 +288,10 @@ int main(void)
 	HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
 
 
+
+	writeBufPtr = writeBuf;
+	writeBufEndPtr = writeBuf + 128;
+
 	oldDRIVE1_ENABLE = GPIO_PIN_SET;//HAL_GPIO_ReadPin(DRIVE_ENABLE_GPIO_Port, DRIVE_ENABLE_Pin);
 
 	/* Mount SD Card */
@@ -294,11 +300,17 @@ int main(void)
     _Error_Handler(__FILE__, __LINE__);
 	}
 
-	if((res = f_open(&fil, "DOS33.DSK", FA_READ)) != FR_OK){
-		// SHOW MESSAGE ON APPLE 2
-    _Error_Handler(__FILE__, __LINE__);
+	if (bootloader){
+		if((res = f_open(&fil, "BOOT.DSK", FA_READ)) != FR_OK){
+			// SHOW MESSAGE ON APPLE 2
+			_Error_Handler(__FILE__, __LINE__);
+		}
+	} else {
+		if((res = f_open(&fil, "DOS33.DSK", FA_READ)) != FR_OK){
+			// SHOW MESSAGE ON APPLE 2
+			_Error_Handler(__FILE__, __LINE__);
+		}
 	}
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -309,6 +321,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+		// reinit buf after disable write_request
 		if (HAL_GPIO_ReadPin(WRITE_REQUEST_GPIO_Port, WRITE_REQUEST_Pin)){
 			writeBufPtr = writeBuf;
 			writeBufEndPtr = writeBuf + 128;
@@ -530,7 +543,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 15;
+  htim2.Init.Prescaler = 7;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -678,10 +691,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LED3_Pin|LED2_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, WRITE_PROTECT_Pin|SD_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : LED1_Pin */
   GPIO_InitStruct.Pin = LED1_Pin;
@@ -690,22 +700,20 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(LED1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED3_Pin LED2_Pin */
-  GPIO_InitStruct.Pin = LED3_Pin|LED2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA6 PA10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_10;
+  /*Configure GPIO pins : PA3 PA4 PA6 PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_6|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB1 PB2 PB6
-                           PB7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_6
-                          |GPIO_PIN_7;
+  /*Configure GPIO pins : WRITE_PROTECT_Pin SD_CS_Pin */
+  GPIO_InitStruct.Pin = WRITE_PROTECT_Pin|SD_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB1 PB2 PB6 PB7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_6|GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -714,13 +722,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : SD_CS_Pin */
-  GPIO_InitStruct.Pin = SD_CS_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(SD_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PHASE2_Pin PHASE3_Pin */
   GPIO_InitStruct.Pin = PHASE2_Pin|PHASE3_Pin;

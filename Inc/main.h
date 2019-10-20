@@ -74,10 +74,8 @@ void Error_Handler(void);
 #define WRITE_SIGNAL_GPIO_Port GPIOA
 #define WRITE_SIGNAL_COPY_Pin GPIO_PIN_2
 #define WRITE_SIGNAL_COPY_GPIO_Port GPIOA
-#define LED3_Pin GPIO_PIN_3
-#define LED3_GPIO_Port GPIOA
-#define LED2_Pin GPIO_PIN_4
-#define LED2_GPIO_Port GPIOA
+#define WRITE_PROTECT_Pin GPIO_PIN_0
+#define WRITE_PROTECT_GPIO_Port GPIOB
 #define PHASE0_Pin GPIO_PIN_10
 #define PHASE0_GPIO_Port GPIOB
 #define PHASE0_EXTI_IRQn EXTI15_10_IRQn
