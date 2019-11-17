@@ -68,10 +68,15 @@ FIL fil;
 uint8_t nicBuf[NIC_SECTOR_SIZE];
 uint8_t dskBuf[DSK_SECTOR_SIZE+2];
 
-int16_t writeBuf[512];
-int16_t writeBuf2[512], writeBuf3[512]; uint8_t writeBuf4[512];
+uint16_t writeBuf[2][128];
+uint8_t currentBuf = 0;
+uint8_t convertComplete = 0;
+uint16_t writeBuf2[512], writeBuf3[512];
+uint8_t writeBuf4[512];
 int16_t *writeBufPtr;
 int16_t *writeBufEndPtr;
+uint32_t *bb_ptr;
+//= BB(writeBuf4);
 
 volatile uint8_t track = 0;
 volatile uint8_t sector = 0;
@@ -190,45 +195,51 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 }
 
-#define TICK 16
-
 void convert(void){
-	//LED3_GPIO_Port->ODR ^= LED3_Pin;
 	uint16_t i = 0;
-	int16_t current;
-	current = writeBuf2[0] = writeBuf[0];
-	uint32_t *bb_ptr = BB(writeBuf4);
-	for (; i < 512; i++){
-		current -= TICK * 1.5;
-		if (current < 0){
-			*bb_ptr = 1; writeBuf3[i] = 1;
+	int16_t interval;
+	int16_t prew = writeBuf[!currentBuf][127];
+	int16_t current = writeBuf[currentBuf][0];
+
+	interval = current - prew;
+
+	for (i = 1; i < 128; i++){
+		writeBuf2[i-1] = interval;
+		if (interval > 80){
+			*bb_ptr = 0; writeBuf3[i] = 3;
+			bb_ptr++;
+			*bb_ptr = 0;
+			bb_ptr++;
+			*bb_ptr = 1;
+			bb_ptr++;
+		} else if (interval > 50){
+			*bb_ptr = 0; writeBuf3[i] = 2;
+			bb_ptr++;
+			*bb_ptr = 1;
 			bb_ptr++;
 		} else {
-			current -= TICK;
-			if (abs(current) < 8){
-				*bb_ptr = 0; writeBuf3[i] = 2;
-				bb_ptr++;
-				*bb_ptr = 1;
-				bb_ptr++;
-			} else {
-				*bb_ptr = 0; writeBuf3[i] = 3;
-				bb_ptr++;
-				*bb_ptr = 0;
-				bb_ptr++;
-				*bb_ptr = 1;
-				bb_ptr++;
-			}
+			*bb_ptr = 1; writeBuf3[i] = 1;
+			bb_ptr++;
 		}
-		current = writeBuf2[i] = writeBuf[i] - writeBuf[i - 1];
+
+
+		prew = current;
+		current = writeBuf[currentBuf][i];
+		interval = current - prew;
 	}
-	//LED3_GPIO_Port->ODR ^= LED3_Pin;
-	for (i = 0; i < 512; i++) {
-		writeBuf4[i] = ((writeBuf4[i] * 0x0802LU & 0x22110LU) | (writeBuf4[i] * 0x8020LU & 0x88440LU)) * 0x10101LU >> 16;
-	}
-	//LED3_GPIO_Port->ODR ^= LED3_Pin;
-	writeBufPtr = writeBuf;
+
+
+	convertComplete = 1;
 }
 
+void init_write_buf(void){
+			currentBuf = 0;
+			writeBufPtr = writeBuf[0];
+			writeBufEndPtr = writeBufPtr + 128;
+			writeBuf[1][127] = 0;
+			bb_ptr = BB(writeBuf4);
+			convertComplete = 0;
+}
 
 /* USER CODE END PFP */
 
@@ -244,6 +255,7 @@ void convert(void){
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+	uint16_t i;
 	uint8_t oldTrack = !track;
 	uint8_t oldSector = !sector;
 	GPIO_PinState oldDRIVE1_ENABLE;
@@ -277,20 +289,80 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
+
+	for (i = 0; i < 255; i++)
+		writeBuf4[i] = i;
+
+	writeBuf4[6] = 0xd5;
+	writeBuf4[7] = 0xaa;
+	writeBuf4[8] = 0xad;
+
+
+
+	// Найти метку
+	uint8_t sync[3] = {0xd5, 0xaa, 0xad};
+	uint32_t* dst = BB(&writeBuf4[30]); // искать синхру первые 10 байт
+
+	uint8_t sync_flag = 1;
+
+	uint32_t* src = BB(writeBuf4);
+	uint32_t* sync_ptr = BB(sync);
+	for (; src < dst; src++){
+		sync_flag = 1;
+		for (i = 0; i < 24; i++)
+			if (src[i] != sync_ptr[i]){
+				sync_flag = 0;
+				break;
+			}
+		if (sync_flag)
+			break;
+	}
+
+	if (sync_flag){
+
+		// отрезать синхру
+		dst = BB(writeBuf4);
+		uint16_t count = (512)*8 - (src - dst);
+		for (; count; count--){
+			*dst = *src;
+			dst++;
+			src++;
+		}
+	} else {
+		// Ошибка, синхропоследовательность не найдена.
+
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 	// 1us pulse generator
   HAL_TIM_Base_Start(&htim3);
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
 
 	// Write capture
-	writeBufPtr = writeBuf;
-	writeBufEndPtr = writeBuf + 128;
+	init_write_buf();
+	//HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
 	HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_2);
 	HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
 
-
-
-	writeBufPtr = writeBuf;
-	writeBufEndPtr = writeBuf + 128;
 
 	oldDRIVE1_ENABLE = GPIO_PIN_SET;//HAL_GPIO_ReadPin(DRIVE_ENABLE_GPIO_Port, DRIVE_ENABLE_Pin);
 
@@ -322,9 +394,48 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
 		// reinit buf after disable write_request
-		if (HAL_GPIO_ReadPin(WRITE_REQUEST_GPIO_Port, WRITE_REQUEST_Pin)){
-			writeBufPtr = writeBuf;
-			writeBufEndPtr = writeBuf + 128;
+		if (HAL_GPIO_ReadPin(WRITE_REQUEST_GPIO_Port, WRITE_REQUEST_Pin) && convertComplete){
+
+
+			for (i = 0; i < 512; i++) {
+				writeBuf4[i] = ((writeBuf4[i] * 0x0802LU & 0x22110LU) | (writeBuf4[i] * 0x8020LU & 0x88440LU)) * 0x10101LU >> 16;
+			}
+
+
+			// Найти метку
+			uint8_t sync[3] = {0xd5, 0xaa, 0xad};
+			uint32_t* dst = BB(&writeBuf4[30]); // искать синхру первые 10 байт
+
+			uint8_t sync_flag = 1;
+
+			uint32_t* src = BB(writeBuf4);
+			uint32_t* sync_ptr = BB(sync);
+			for (; src < dst; src++){
+				sync_flag = 1;
+				for (i = 0; i < 24; i++)
+					if (src[i] != sync_ptr[i]){
+						sync_flag = 0;
+						break;
+					}
+				if (sync_flag)
+					break;
+			}
+
+			if (sync_flag){
+
+				// отрезать синхру
+				dst = BB(writeBuf4);
+				uint16_t count = (512)*8 - (src - dst);
+				for (; count; count--){
+					*dst = *src;
+					dst++;
+					src++;
+				}
+			} else {
+				// Ошибка, синхропоследовательность не найдена.
+
+			}
+			init_write_buf();
 		}
 
 		if (HAL_GPIO_ReadPin(DRIVE1_ENABLE_GPIO_Port, DRIVE1_ENABLE_Pin) != oldDRIVE1_ENABLE){

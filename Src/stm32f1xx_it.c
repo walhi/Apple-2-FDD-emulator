@@ -70,13 +70,16 @@ extern TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN EV */
 
 extern TIM_HandleTypeDef htim3;
-extern uint16_t *writeBufPtr;
-extern uint16_t *writeBufEndPtr;
 
+extern int16_t writeBuf[][128];
+extern uint8_t currentBuf;
+extern int16_t *writeBufPtr;
+extern int16_t *writeBufEndPtr;
+extern uint8_t convertComplete;
 /* USER CODE END EV */
 
 /******************************************************************************/
-/*           Cortex-M3 Processor Interruption and Exception Handlers          */ 
+/*           Cortex-M3 Processor Interruption and Exception Handlers          */
 /******************************************************************************/
 /**
   * @brief This function handles System service call via SWI instruction.
@@ -166,18 +169,33 @@ void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
 
-	*writeBufPtr = __HAL_TIM_GET_COUNTER(&htim2);
-	writeBufPtr++;
-	if (writeBufPtr > writeBufEndPtr){
-		//HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_2);
-		//HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
-		convert();
-		LED1_GPIO_Port->ODR ^= LED1_Pin;
-	}
+  /* TIM Trigger detection event */
+	if(__HAL_TIM_GET_IT_SOURCE(&htim2, TIM_IT_TRIGGER) !=RESET) {
+		HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_2);
+		HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
+		__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_TRIGGER);
+		currentBuf = 0;
+		writeBufPtr = &(writeBuf[currentBuf][0]);
+		writeBufEndPtr = writeBufPtr + 128;
+	} else {
+		*writeBufPtr = __HAL_TIM_GET_COUNTER(&htim2);
+		writeBufPtr++;
 
-	__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_CC2);
-	__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_CC3);
-	return;
+		__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_CC2);
+		__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_CC3);
+
+		if (writeBufPtr >= writeBufEndPtr){
+			convertComplete = 0;
+			// Next buffer
+			convert();
+			currentBuf = !currentBuf;
+			writeBufPtr = writeBuf[currentBuf];
+			writeBufEndPtr = writeBufPtr + 128;
+
+		}
+
+		return;
+	}
   /* USER CODE END TIM2_IRQn 0 */
   HAL_TIM_IRQHandler(&htim2);
   /* USER CODE BEGIN TIM2_IRQn 1 */
